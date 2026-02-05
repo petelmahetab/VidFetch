@@ -1,0 +1,19 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Env files
+.env
+.env.local
+
+# React build
+client/build/
+dist/
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
