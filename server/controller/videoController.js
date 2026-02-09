@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const COOKIES_PATH = path.join(__dirname, 'cookies.txt');
 
 const TEMP_DIR = path.join(__dirname, '../temp');
 if (!fs.existsSync(TEMP_DIR)) {
@@ -19,10 +18,6 @@ const detectPlatform = (url) => {
   if (url.includes('tiktok.com')) return 'TikTok';
   if (url.includes('twitter.com') || url.includes('x.com')) return 'Twitter';
   if (url.includes('snapchat.com')) return 'Snapchat';
-  if (url.includes('vimeo.com')) return 'Vimeo';
-  if (url.includes('dailymotion.com')) return 'Dailymotion';
-  if (url.includes('reddit.com')) return 'Reddit';
-  if (url.includes('twitch.tv')) return 'Twitch';
   if (url.includes('linkedin.com')) return 'LinkedIn';
   return 'Unknown';
 };
@@ -41,6 +36,32 @@ const hasAudioTrack = (format) => {
     return true;
   }
   return false;
+};
+
+const getYtDlpOptions = (platform) => {
+  const baseOptions = {
+    dumpSingleJson: true,
+    noWarnings: true,
+    noCheckCertificate: true,
+    noPlaylist: true,
+  };
+
+  if (platform === 'YouTube') {
+    return {
+      ...baseOptions,
+      extractorArgs: 'youtube:player_client=android_creator,web_creator,android,ios',
+      userAgent: 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+    };
+  }
+
+  return {
+    ...baseOptions,
+    preferFreeFormats: true,
+    addHeader: [
+      'referer:youtube.com',
+      'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    ]
+  };
 };
 
 export const testApi = (req, res) => {
@@ -72,26 +93,9 @@ export const getVideoInfo = async (req, res) => {
     }
 
     const platform = detectPlatform(url);
+    const options = getYtDlpOptions(platform);
 
-    const info = await ytDlpWrap(url, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificate: true,
-      preferFreeFormats: true,
-      jsRuntimes: 'node',
-      extractorArgs: 'youtube:player_client=android',
-      userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
-      cookies: COOKIES_PATH,
-
-      addHeader: [
-        'referer:https://www.youtube.com/',
-        'origin:https://www.youtube.com',
-        'user-agent:Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
-      ],
-
-      quiet: true,
-      noPlaylist: true
-    });
+    const info = await ytDlpWrap(url, options);
 
     let allFormats = [];
 
@@ -285,11 +289,19 @@ export const getVideoInfo = async (req, res) => {
   } catch (error) {
     console.error('Video info error:', error.message);
 
+    if (error.message.includes('Sign in to confirm') || error.message.includes('not a bot')) {
+      return res.status(503).json({
+        success: false,
+        error: 'YouTube restriction',
+        message: 'This YouTube video cannot be downloaded due to platform restrictions. All other platforms (Instagram, Facebook, Twitter, TikTok) work perfectly. This is a known YouTube limitation.'
+      });
+    }
+
     if (error.message.includes('unavailable for certain audiences') || error.message.includes('inappropriate')) {
       return res.status(403).json({
         success: false,
         error: 'Content restricted',
-        message: 'This Instagram content is age-restricted or unavailable for certain audiences. Try a public reel instead.'
+        message: 'This content is age-restricted or unavailable for certain audiences.'
       });
     }
 
@@ -311,11 +323,11 @@ export const getVideoInfo = async (req, res) => {
     }
 
     if (error.message.includes('login required') || error.message.includes('Sign in') ||
-      error.message.includes('members-only') || error.message.includes('This content is not available')) {
+      error.message.includes('members-only')) {
       return res.status(403).json({
         success: false,
         error: 'Authentication required',
-        message: 'This content requires login or is members-only. For Snapchat, only public Spotlight videos are supported.'
+        message: 'This content requires login or is members-only.'
       });
     }
 
@@ -349,18 +361,10 @@ export const downloadVideo = async (req, res) => {
       });
     }
 
-    // const info = await ytDlpWrap(url, { dumpSingleJson: true });
+    const platform = detectPlatform(url);
+    const options = getYtDlpOptions(platform);
 
-    const info = await ytDlpWrap(url, {
-      dumpSingleJson: true,
-      jsRuntimes: 'node',
-      extractorArgs: 'youtube:player_client=android',
-      userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
-      cookies: COOKIES_PATH,
-      noWarnings: true,
-      noCheckCertificate: true,
-      noPlaylist: true
-    });
+    const info = await ytDlpWrap(url, options);
 
     const sanitizedTitle = info.title
       .replace(/[^\w\s-]/g, '')
@@ -385,12 +389,10 @@ export const downloadVideo = async (req, res) => {
         noPlaylist: true,
       };
 
-      // downloadOptions = {
-      //   ...downloadOptions,
-      //   jsRuntimes: 'node',
-      //   extractorArgs: 'youtube:player_client=android',
-      //   userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
-      // };
+      if (platform === 'YouTube') {
+        downloadOptions.extractorArgs = 'youtube:player_client=android_creator,web_creator,android,ios';
+        downloadOptions.userAgent = 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip';
+      }
 
       res.setHeader('Content-Type', 'audio/mpeg');
     } else {
@@ -434,6 +436,11 @@ export const downloadVideo = async (req, res) => {
         }
       }
 
+      if (platform === 'YouTube') {
+        downloadOptions.extractorArgs = 'youtube:player_client=android_creator,web_creator,android,ios';
+        downloadOptions.userAgent = 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip';
+      }
+
       res.setHeader('Content-Type', 'video/mp4');
     }
 
@@ -474,11 +481,19 @@ export const downloadVideo = async (req, res) => {
     }
 
     if (!res.headersSent) {
+      if (error.message.includes('Sign in to confirm') || error.message.includes('not a bot')) {
+        return res.status(503).json({
+          success: false,
+          error: 'YouTube restriction',
+          message: 'This YouTube video cannot be downloaded due to platform restrictions. All other platforms work perfectly.'
+        });
+      }
+
       if (error.message.includes('unavailable for certain audiences') || error.message.includes('inappropriate')) {
         return res.status(403).json({
           success: false,
           error: 'Content restricted',
-          message: 'This Instagram content is age-restricted or unavailable for certain audiences. Try a public reel instead.'
+          message: 'This content is age-restricted or unavailable.'
         });
       }
 
@@ -491,11 +506,11 @@ export const downloadVideo = async (req, res) => {
       }
 
       if (error.message.includes('Private video') || error.message.includes('members-only') ||
-        error.message.includes('login required') || error.message.includes('This content is not available')) {
+        error.message.includes('login required')) {
         return res.status(403).json({
           success: false,
           error: 'Private content',
-          message: 'This video is private or requires login to access. For Snapchat, only public Spotlight videos are supported.'
+          message: 'This video is private or requires login to access.'
         });
       }
 
