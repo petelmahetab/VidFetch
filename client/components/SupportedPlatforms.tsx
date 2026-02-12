@@ -6,34 +6,27 @@ import { Platform } from '../types';
 const platforms: Platform[] = [
   {
     id: '1',
-    name: 'YouTube',
-    icon: 'smart_display',          
-    color: 'bg-red-600/20',
-    hoverColor: 'text-red-500'
-  },
-  {
-    id: '2',
     name: 'Instagram',
     icon: 'photo_camera',            
     color: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500/30', 
     hoverColor: 'text-pink-400'
   },
   {
-    id: '3',
+    id: '2',
     name: 'X / Twitter',
     icon: 'close',
     color: 'bg-sky-500/20',
     hoverColor: 'text-sky-400'
   },
   {
-    id: '4',
+    id: '3',
     name: 'Facebook',
     icon: 'facebook',
     color: 'bg-blue-600/20',
     hoverColor: 'text-blue-500'
   },
   {
-    id: '5',
+    id: '4',
     name: 'Snapchat',
     icon: 'face',             
     color: 'bg-yellow-500/20',
