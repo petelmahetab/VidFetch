@@ -9,20 +9,19 @@ const __dirname = path.dirname(__filename);
 const TEMP_DIR = path.join(__dirname, '../temp');
 let COOKIES_FILE = path.join(process.cwd(), 'cookies', 'youtube_cookies.txt');
 
-// Initialize directories and cookies
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-// Load cookies from environment variable if available (for production)
+// Load cookies from environment if available
 if (process.env.YOUTUBE_COOKIES_BASE64) {
   try {
     const cookiesContent = Buffer.from(process.env.YOUTUBE_COOKIES_BASE64, 'base64').toString('utf8');
     COOKIES_FILE = path.join(TEMP_DIR, 'youtube_cookies.txt');
     fs.writeFileSync(COOKIES_FILE, cookiesContent);
-    console.log('✅ Cookies loaded from environment variable');
+    console.log('✅ Cookies loaded from environment');
   } catch (err) {
-    console.error('⚠️ Failed to load cookies from env:', err.message);
+    console.error('⚠️ Cookie load failed:', err.message);
   }
 }
 
@@ -63,7 +62,39 @@ const getYtDlpStrategies = (platform) => {
 
   const strategies = [];
   const hasCookieFile = fs.existsSync(COOKIES_FILE);
+  const hasScraperAPI = !!process.env.SCRAPERAPI_KEY;
 
+  // PRIORITY 1: ScraperAPI with iOS (BEST for production)
+  if (hasScraperAPI) {
+    const scraperProxy = `http://scraperapi:${process.env.SCRAPERAPI_KEY}@proxy-server.scraperapi.com:8001`;
+    
+    strategies.push({
+      name: 'ScraperAPI + iOS',
+      options: {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificate: true,
+        noPlaylist: true,
+        proxy: scraperProxy,
+        extractorArgs: 'youtube:player_client=ios',
+        userAgent: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+      }
+    });
+
+    strategies.push({
+      name: 'ScraperAPI + Android',
+      options: {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificate: true,
+        noPlaylist: true,
+        proxy: scraperProxy,
+        extractorArgs: 'youtube:player_client=android_music',
+      }
+    });
+  }
+
+  // PRIORITY 2: Cookies with iOS
   if (hasCookieFile) {
     strategies.push({
       name: 'iOS + Cookies',
@@ -79,6 +110,7 @@ const getYtDlpStrategies = (platform) => {
     });
   }
 
+  // PRIORITY 3: Standard strategies (fallback)
   strategies.push({
     name: 'iOS Pure',
     options: {
@@ -110,17 +142,6 @@ const getYtDlpStrategies = (platform) => {
       noCheckCertificate: true,
       noPlaylist: true,
       extractorArgs: 'youtube:player_client=mediaconnect',
-    }
-  });
-
-  strategies.push({
-    name: 'TV Embedded',
-    options: {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificate: true,
-      noPlaylist: true,
-      extractorArgs: 'youtube:player_client=tv_embedded',
     }
   });
 
@@ -156,12 +177,14 @@ const deduplicateFormats = (formats) => {
 
 export const testApi = (req, res) => {
   const hasCookieFile = fs.existsSync(COOKIES_FILE);
+  const hasScraperAPI = !!process.env.SCRAPERAPI_KEY;
   
   res.json({
     success: true,
     message: 'Multi-Platform Video Downloader API',
     cookieFile: hasCookieFile ? 'Found' : 'Not Found',
-    strategies: 5,
+    scraperAPI: hasScraperAPI ? 'Enabled' : 'Disabled (may fail in production)',
+    strategies: hasScraperAPI ? 6 : 4,
     supported: 'YouTube, Instagram, Facebook, TikTok, Twitter, Snapchat, LinkedIn, and 1000+ more',
     timestamp: new Date().toISOString(),
   });
@@ -195,6 +218,7 @@ export const getVideoInfo = async (req, res) => {
       try {
         info = await ytDlpWrap(url, strategy.options);
         successStrategy = strategy.name;
+        console.log(`✅ Success with: ${strategy.name}`);
         break;
       } catch (error) {
         lastError = error;
@@ -203,6 +227,7 @@ export const getVideoInfo = async (req, res) => {
     }
 
     if (!info) {
+      console.error('All strategies failed');
       throw lastError || new Error('All download strategies failed');
     }
 
@@ -392,7 +417,10 @@ export const getVideoInfo = async (req, res) => {
       return res.status(403).json({
         success: false,
         error: 'YouTube Bot Detection',
-        message: 'All bypass methods failed. This video may be region-restricted or age-gated.',
+        message: process.env.SCRAPERAPI_KEY 
+          ? 'All methods failed. Video may be restricted.' 
+          : 'Cloud IP blocked by YouTube. Enable ScraperAPI for production.',
+        needsScraperAPI: !process.env.SCRAPERAPI_KEY,
       });
     }
 
@@ -473,6 +501,9 @@ export const downloadVideo = async (req, res) => {
       }
       if (successfulStrategy.options.cookies) {
         baseOptions.cookies = successfulStrategy.options.cookies;
+      }
+      if (successfulStrategy.options.proxy) {
+        baseOptions.proxy = successfulStrategy.options.proxy;
       }
     }
 
