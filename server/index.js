@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 5000;
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:3000',
+  'https://downly-hub.vercel.app/',
   process.env.FRONTEND_URL, // Add your Vercel/Netlify URL here via env variable
 ].filter(Boolean);
 
